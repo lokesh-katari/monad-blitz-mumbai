@@ -1,0 +1,1419 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Phaser Multiplayer Shooter</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.7.0/ethers.umd.min.js"></script>
+    <!-- Load Phaser 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+    <!-- Load Tone.js for sound effects -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <style>
+      /* Simple global styles */
+      body,
+      html {
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+        margin: 0;
+        font-family: Inter, sans-serif;
+      }
+      /* Center the game container */
+      #game-container {
+        width: 100%;
+        height: calc(100% - 130px); /* Full height minus header */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      /* Let Phaser control the canvas size */
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+    <script>
+        // Contract ABI
+        const CONTRACT_ABI = [
+            {
+                "inputs": [
+                    {"internalType": "address", "name": "player", "type": "address"},
+                    {"internalType": "address", "name": "eliminator", "type": "address"}
+                ],
+                "name": "eliminatePlayer",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "emergencyWithdraw",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "endGame",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "joinGame",
+                "outputs": [],
+                "stateMutability": "payable",
+                "type": "function"
+            },
+            {
+                "inputs": [
+                    {"internalType": "address", "name": "shooter", "type": "address"},
+                    {"internalType": "address", "name": "victim", "type": "address"},
+                    {"internalType": "uint256", "name": "points", "type": "uint256"}
+                ],
+                "name": "playerShot",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "startGame",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "getPlayers",
+                "outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [],
+                "name": "gameStarted",
+                "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "name": "players",
+                "outputs": [
+                    {"internalType": "uint256", "name": "stake", "type": "uint256"},
+                    {"internalType": "uint256", "name": "score", "type": "uint256"},
+                    {"internalType": "bool", "name": "active", "type": "bool"},
+                    {"internalType": "bool", "name": "joined", "type": "bool"}
+                ],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {"indexed": true, "internalType": "address", "name": "shooter", "type": "address"},
+                    {"indexed": true, "internalType": "address", "name": "victim", "type": "address"},
+                    {"indexed": false, "internalType": "uint256", "name": "stakeTransferred", "type": "uint256"},
+                    {"indexed": false, "internalType": "uint256", "name": "shooterNewScore", "type": "uint256"}
+                ],
+                "name": "PlayerShot",
+                "type": "event"
+            },
+            {
+                "anonymous": false,
+                "inputs": [
+                    {"indexed": true, "internalType": "address", "name": "player", "type": "address"},
+                    {"indexed": false, "internalType": "uint256", "name": "stake", "type": "uint256"}
+                ],
+                "name": "PlayerJoined",
+                "type": "event"
+            }
+        ];
+
+        let provider;
+        let signer;
+        let contract;
+        let userAddress;
+  let walletConnected = false;
+  let userStake = null;
+
+    // Log function (safe: falls back to console if no UI log)
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('eventLog');
+      if (logDiv) {
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type === 'error' ? 'log-error' : type === 'success' ? 'log-success' : ''}`;
+        entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+        logDiv.insertBefore(entry, logDiv.firstChild);
+      } else {
+        if (type === 'error') console.error(message);
+        else if (type === 'success') console.info(message);
+        else console.log(message);
+      }
+    }
+
+        // Connect wallet
+        async function connectWallet() {
+            try {
+                if (typeof window.ethereum === 'undefined') {
+                    log('MetaMask is not installed!', 'error');
+                    alert('Please install MetaMask to use this application');
+                    return;
+                }
+
+                provider = new ethers.BrowserProvider(window.ethereum);
+                await provider.send("eth_requestAccounts", []);
+                signer = await provider.getSigner();
+                userAddress = await signer.getAddress();
+
+                document.getElementById('walletStatus').innerHTML = '<span class="connected">Connected</span>';
+                document.getElementById('userAddress').textContent = userAddress.substring(0, 6) + '...' + userAddress.substring(38);
+                
+                // Automatically set up the contract with hardcoded address
+                const contractAddress = '0x3c2349772CEb7c1D2a9333A1Dabee13d2F236f63';
+                contract = new ethers.Contract(contractAddress, CONTRACT_ABI, signer);
+                
+                // Enable join game button
+        const jb = document.getElementById('joinGameButton') || document.getElementById('joinGameBtn');
+        if (jb) jb.disabled = false;
+
+        walletConnected = true;
+        console.log('Wallet connected and contract initialized successfully');
+        await updateGameStatus();
+        if (typeof listenToEvents === 'function') await listenToEvents();
+        return true;
+            } catch (error) {
+        console.error('Error connecting wallet:', error);
+        return false;
+            }
+        }
+
+
+        // Update game status
+        async function updateGameStatus() {
+            try {
+                // Optional: update on-chain game state if available
+                try {
+                  const gameStarted = await contract.gameStarted();
+                  const gsEl = document.getElementById('gameStatus');
+                  if (gsEl) gsEl.textContent = gameStarted ? 'Started' : 'Not Started';
+                } catch (e) {
+                  // ignore if contract doesn't expose gameStarted
+                }
+
+                const playerData = await contract.players(userAddress);
+                const stakeInEth = ethers.formatEther(playerData.stake || 0);
+                const psEl = document.getElementById('playerStake');
+                if (psEl) psEl.textContent = `${stakeInEth} ETH`;
+            } catch (error) {
+                log(`Error updating status: ${error.message}`, 'error');
+            }
+        }
+
+        // Join game
+        async function joinGame() {
+            try {
+                const stakeAmount = document.getElementById('stakeAmount').value;
+                const stakeWei = ethers.parseEther(stakeAmount);
+
+                log('Sending join game transaction...');
+                const tx = await contract.joinGame({ value: stakeWei });
+                log('Transaction sent, waiting for confirmation...');
+                
+                await tx.wait();
+                log('Successfully joined the game!', 'success');
+                await updateGameStatus();
+                
+                // Redirect to the game
+                window.location.href = '/game.html';  // Redirects to the game page
+            } catch (error) {
+                log(`Error joining game: ${error.message}`, 'error');
+            }
+        }
+
+        // Start game (only game manager can call this)
+        async function startGame() {
+            try {
+                log('Starting game...');
+                const tx = await contract.startGame();
+                await tx.wait();
+                log('Game started successfully!', 'success');
+                await updateGameStatus();
+            } catch (error) {
+                log(`Error starting game: ${error.message}`, 'error');
+            }
+        }
+
+        // Shoot player - This is where you'd integrate your game logic
+        async function shootPlayer() {
+            try {
+                // Example: Get victim address (in real game, this would come from game logic)
+                const players = await contract.getPlayers();
+                if (players.length < 2) {
+                    log('Not enough players to shoot', 'error');
+                    return;
+                }
+
+                // Find a victim (not yourself)
+                const victim = players.find(p => p.toLowerCase() !== userAddress.toLowerCase());
+                if (!victim) {
+                    log('No valid target found', 'error');
+                    return;
+                }
+
+                const points = 100; // Example points
+
+                log(`Shooting player ${victim}...`);
+                const tx = await contract.playerShot(userAddress, victim, points);
+                await tx.wait();
+                log('Player shot successfully!', 'success');
+                await updateGameStatus();
+            } catch (error) {
+                log(`Error shooting player: ${error.message}`, 'error');
+            }
+        }
+
+        // End game
+        async function endGame() {
+            try {
+                log('Ending game...');
+                const tx = await contract.endGame();
+                await tx.wait();
+                log('Game ended successfully!', 'success');
+                await updateGameStatus();
+            } catch (error) {
+                log(`Error ending game: ${error.message}`, 'error');
+            }
+        }
+
+        // Get players
+        async function getPlayers() {
+            try {
+                const players = await contract.getPlayers();
+                log(`Total players: ${players.length}`);
+                players.forEach((player, i) => {
+                    log(`Player ${i + 1}: ${player}`);
+                });
+            } catch (error) {
+                log(`Error getting players: ${error.message}`, 'error');
+            }
+        }
+
+        // Listen to contract events
+        async function listenToEvents() {
+            contract.on("PlayerJoined", (player, stake) => {
+                log(`Player ${player} joined with stake: ${ethers.formatEther(stake)} ETH`, 'success');
+            });
+
+            contract.on("PlayerShot", (shooter, victim, stakeTransferred, shooterNewScore) => {
+                log(`${shooter} shot ${victim}! Stake transferred: ${ethers.formatEther(stakeTransferred)} ETH`, 'success');
+            });
+
+            contract.on("GameStarted", (timestamp) => {
+                log('Game has started!', 'success');
+                updateGameStatus();
+            });
+
+            contract.on("GameEnded", (timestamp) => {
+                log('Game has ended!', 'success');
+                updateGameStatus();
+            });
+        }
+
+        // INTEGRATION EXAMPLE:
+        // When a specific event happens in your game (e.g., player shoots another player):
+        async function onGameEventShoot(victimAddress) {
+            // This function would be called from your game code
+            try {
+                const tx = await contract.playerShot(userAddress, victimAddress, 100);
+                await tx.wait();
+                console.log('Blockchain transaction completed');
+            } catch (error) {
+                console.error('Blockchain error:', error);
+            }
+        }
+
+        // Example: Auto-connect on page load if previously connected
+        window.addEventListener('load', async () => {
+            if (typeof window.ethereum !== 'undefined') {
+                const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+                if (accounts.length > 0) {
+                    connectWallet();
+                }
+            }
+        });
+    </script>
+  <body class="bg-gray-900 text-white">
+    <!-- Header Info -->
+    <div
+      class="absolute top-0 left-0 z-10 w-full p-4 bg-gray-900 bg-opacity-80 rounded-b-lg shadow-lg"
+      style="height: 130px"
+    >
+      <h1 class="text-2xl font-bold text-center">Phaser Multiplayer Shooter</h1>
+      <p class="text-center text-sm text-gray-300">
+        Move: WASD | Aim: Mouse | Shoot: Left Click
+      </p>
+      <!-- Redesigned Header for Scoreboard + Web3 status -->
+      <div
+        class="mt-2 text-center bg-gray-800 p-2 rounded-lg max-w-xl mx-auto grid grid-cols-2 gap-2"
+      >
+        <div class="border-r border-gray-700 pr-2 text-left">
+          <div class="mb-1">
+            <span class="text-gray-400 text-sm">Wallet Status: </span>
+            <strong id="walletStatus" class="text-red-400">Not Connected</strong>
+          </div>
+          <div class="mb-1">
+            <span class="text-gray-400 text-sm">Your Address: </span>
+            <strong id="userAddress" class="text-teal-300">-</strong>
+          </div>
+          <div>
+            <span class="text-gray-400 text-sm">Your Stake: </span>
+            <strong id="playerStake" class="text-teal-300">-</strong>
+          </div>
+        </div>
+        <div>
+          <h3 class="text-center font-bold text-gray-400 text-sm mb-1">
+            Scoreboard (First to 20 wins!)
+          </h3>
+          <ol
+            id="scoreboard-list"
+            class="text-left text-sm"
+            style="max-height: 40px; overflow-y: auto"
+          >
+            <li class="text-gray-500">Loading...</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <!-- Game Container -->
+    <div id="game-container" class="absolute top-[130px] left-0 right-0 bottom-0">
+      <!-- Phaser will create its canvas here -->
+    </div>
+
+    <!-- Loading/Auth State + Wallet Connect Overlay -->
+    <div
+      id="loadingOverlay"
+      class="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 bg-opacity-75 z-20"
+    >
+      <!-- Status / messages -->
+      <div id="loadingText" class="text-2xl font-bold animate-pulse mb-4">
+        Connecting to server...
+      </div>
+
+      <!-- Wallet connect + stake area -->
+      <div id="walletArea" class="flex flex-col items-center bg-gray-800 p-6 rounded-lg">
+        <h2 class="text-2xl font-bold mb-2">Connect Wallet & Enter Stake</h2>
+
+        <div class="mb-3 w-64 text-left">
+          <label class="text-sm text-gray-300">Name</label>
+          <input id="nameInput" type="text" placeholder="Player" class="w-full mt-1 px-3 py-2 rounded bg-gray-700 text-white" />
+        </div>
+
+        <div class="mb-3 w-64 text-left">
+          <label class="text-sm text-gray-300">Stake Amount (ETH)</label>
+          <input id="stakeAmount" type="text" value="0.01" class="w-full mt-1 px-3 py-2 rounded bg-gray-700 text-white" />
+        </div>
+
+        <div class="flex gap-3">
+          <button id="connectWalletBtn" class="px-4 py-2 bg-indigo-600 rounded text-white font-semibold">Connect Wallet</button>
+          <button id="joinGameButton" class="px-4 py-2 bg-teal-500 rounded text-white font-semibold" disabled>Join Game</button>
+        </div>
+
+        <div id="walletHint" class="mt-3 text-sm text-gray-400">Please connect your wallet to enable on-chain play.</div>
+      </div>
+    </div>
+
+    <!-- Game Over Overlay -->
+    <div
+      id="gameOverOverlay"
+      class="absolute inset-0 flex-col hidden items-center justify-center bg-gray-900 bg-opacity-90 z-30"
+    >
+      <div class="text-4xl font-bold text-white mb-4">Game Over</div>
+      <div id="winnerText" class="text-2xl font-bold text-teal-300 mb-8">
+        Player wins!
+      </div>
+      <button
+        id="playAgainButton"
+        class="px-6 py-3 bg-teal-500 text-white font-bold rounded-lg shadow-lg transition-transform transform hover:scale-105"
+      >
+        Play Again
+      </button>
+    </div>
+
+    <!-- Firebase SDK Imports -->
+    <script type="module">
+      import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+      import {
+        getAuth,
+        signInAnonymously,
+        signInWithCustomToken,
+        onAuthStateChanged,
+      } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+      import {
+        getFirestore,
+        doc,
+        setDoc,
+        collection,
+        onSnapshot,
+        updateDoc,
+        setLogLevel,
+        deleteDoc,
+        addDoc,
+        getDocs, // <-- IMPORTED getDocs
+      } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+
+      // --- DOM Elements ---
+      const userIdSpan = document.getElementById('userIdSpan');
+      const loadingOverlay = document.getElementById('loadingOverlay');
+      const scoreboardList = document.getElementById('scoreboard-list');
+      const gameOverOverlay = document.getElementById('gameOverOverlay');
+      const playAgainButton = document.getElementById('playAgainButton');
+      const winnerText = document.getElementById('winnerText');
+      // Name input elements
+      const loadingText = document.getElementById('loadingText');
+      const nameInputArea = document.getElementById('nameInputArea');
+      const nameInput = document.getElementById('nameInput');
+      const joinGameButton = document.getElementById('joinGameButton');
+
+      // --- Game Constants ---
+      const PLAYER_SPEED = 200; // Phaser uses pixels per second
+      const PLAYER_SIZE = 32;
+      const GUN_LENGTH = 30;
+      const MAX_HP = 100;
+      const SHOT_DAMAGE = 25; // Damage per hit
+      const SHOT_COOLDOWN = 300; // ms between shots
+      const BULLET_SPEED = 600;
+      const BULLET_LIFESPAN = 2000; // ms
+      const FIRESTORE_UPDATE_THROTTLE = 100; // ms
+      const WORLD_WIDTH = 1600;
+      const WORLD_HEIGHT = 1200;
+      const SCORE_TO_WIN = 20; // Win condition
+
+      // --- Firebase ---
+      let app, auth, db;
+      let playersCollectionRef = null;
+      let bulletsCollectionRef = null;
+      let playersUnsubscribe = null;
+      let bulletsUnsubscribe = null;
+      let appId = 'default-app-id';
+
+      // --- Game State ---
+      let userId = '';
+      let localPlayer = null;
+      let playerObjects = new Map();
+      let lastFirestoreUpdate = 0;
+      let phaserGame = null;
+      let lastShotTime = 0;
+      let isGameOver = false;
+      const synth = new Tone.Synth().toDestination();
+
+      // --- Phaser Scene ---
+      class GameScene extends Phaser.Scene {
+        constructor() {
+          super('GameScene');
+          this.keys = null;
+          this.playerGroup = null;
+          this.bulletGroup = null;
+          this.wallGroup = null; // For walls
+          this.coverGroup = null; // For hiding
+        }
+
+        preload() {
+          // Use circle sprite for bullet
+          this.load.image(
+            'bullet',
+            'https://placehold.co/8x8/FFFF00/FFFF00?shape=circle'
+          );
+          // Use circle sprite for player
+          this.load.image(
+            'player_sprite',
+            'https://placehold.co/32x32/FFFFFF/FFFFFF?shape=circle'
+          );
+          // Use better wall sprite
+          this.load.image(
+            'wall',
+            'https://placehold.co/150x30/4A5568/374151'
+          );
+          // Load a cover sprite (solid square)
+          this.load.image(
+            'cover',
+            'https://placehold.co/64x64/22C55E/166534' // Changed to solid green square
+          );
+        }
+
+        create() {
+          // --- Setup Input ---
+          this.keys = this.input.keyboard.addKeys('W,A,S,D');
+          this.input.on('pointerdown', this.handleFireBullet, this);
+          this.input.once(
+            'pointerdown',
+            () => {
+              Tone.start();
+            },
+            this
+          );
+
+          // --- Set world bounds ---
+          this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+          // --- Create a background grid ---
+          const graphics = this.add.graphics();
+          graphics.fillStyle(0x2d3748, 1); // bg-gray-800
+          graphics.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+          graphics.lineStyle(1, 0x4a5568, 0.5); // bg-gray-700
+          for (let i = 0; i < WORLD_WIDTH; i += 50) {
+            graphics.lineBetween(i, 0, i, WORLD_HEIGHT);
+          }
+          for (let j = 0; j < WORLD_HEIGHT; j += 50) {
+            graphics.lineBetween(0, j, WORLD_WIDTH, j);
+          }
+          graphics.lineStyle(5, 0xff0000, 1);
+          graphics.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+
+          // --- Setup Physics Groups ---
+          this.playerGroup = this.physics.add.group();
+          this.bulletGroup = this.physics.add.group({
+            defaultKey: 'bullet',
+            maxSize: 50,
+            runChildUpdate: true,
+          });
+          this.wallGroup = this.physics.add.staticGroup();
+          this.coverGroup = this.physics.add.staticGroup(); // Cover group
+
+          // --- Setup Colliders ---
+          this.physics.add.collider(this.playerGroup, this.playerGroup);
+
+          // --- Wall Colliders ---
+          // Players collide with walls
+          this.physics.add.collider(this.playerGroup, this.wallGroup);
+          // Bullets collide with walls
+          this.physics.add.collider(
+            this.bulletGroup,
+            this.wallGroup,
+            this.handleBulletHitWall,
+            null,
+            this
+          );
+
+          // --- Cover Colliders (NEW) ---
+          // Players collide with cover
+          this.physics.add.collider(this.playerGroup, this.coverGroup);
+          // Bullets collide with cover
+          this.physics.add.collider(
+            this.bulletGroup,
+            this.coverGroup,
+            this.handleBulletHitWall, // Use the same handler as walls
+            null,
+            this
+          );
+
+          // --- Cover Overlap (Existing) ---
+          // Players *also* overlap with cover to hide
+          this.physics.add.overlap(
+            this.playerGroup,
+            this.coverGroup,
+            this.handlePlayerOverlapCover,
+            null,
+            this
+          );
+
+          // --- Player/Bullet Collider (Existing) ---
+          this.physics.add.collider(
+            this.playerGroup,
+            this.bulletGroup,
+            this.handleBulletHitPlayer,
+            null,
+            this
+          );
+          this.physics.world.on('worldbounds', (body) => {
+            if (body.gameObject.group === this.bulletGroup) {
+              body.gameObject.destroy();
+            }
+          });
+
+          // --- Create Scenery ---
+          this.createWalls();
+          this.createCover();
+
+          // --- Firebase Listeners ---
+          startFirebaseListeners(this);
+
+          // --- Camera ---
+          this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        }
+
+        update(time, delta) {
+          // *** FIX ***
+          // Reset all player alphas at the start of the frame.
+          // The overlap check will set the alpha for *this* frame.
+          // This fixes the flickering / not-hiding bug.
+          this.playerGroup.getChildren().forEach((p) => p.setAlpha(1.0));
+
+          // Run overlaps *manually* to ensure alpha is set *after* reset
+          this.physics.overlap(
+            this.playerGroup,
+            this.coverGroup,
+            this.handlePlayerOverlapCover,
+            null,
+            this
+          );
+          // *** END FIX ***
+
+          if (isGameOver || !localPlayer || !userId) {
+            return;
+          }
+
+          // 1. Handle Local Player Movement
+          this.updateLocalPlayerMovement(delta);
+
+          // 2. Handle Local Player Aiming
+          const worldPoint = this.input.activePointer.positionToCamera(
+            this.cameras.main
+          );
+          const newAngle = Phaser.Math.Angle.Between(
+            localPlayer.x,
+            localPlayer.y,
+            worldPoint.x,
+            worldPoint.y
+          );
+          localPlayer.setRotation(newAngle);
+
+          // 3. (Throttled) Send Local State to Firestore
+          const now = Date.now();
+          if (now - lastFirestoreUpdate > FIRESTORE_UPDATE_THROTTLE) {
+            if (playersCollectionRef) {
+              const playerDocRef = doc(playersCollectionRef, userId);
+              updateDoc(playerDocRef, {
+                x: localPlayer.x,
+                y: localPlayer.y,
+                angle: localPlayer.rotation,
+              }).catch((err) =>
+                console.error('Error updating player state:', err)
+              );
+            }
+            lastFirestoreUpdate = now;
+          }
+
+          // 4. Update Other Players (Interpolation)
+          this.updateOtherPlayers(delta);
+        }
+
+        // --- Wall creation function ---
+        createWalls() {
+          this.wallGroup.create(400, 300, 'wall').refreshBody();
+          this.wallGroup.create(800, 600, 'wall').setAngle(90).refreshBody();
+          this.wallGroup.create(1200, 400, 'wall').refreshBody();
+          this.wallGroup.create(400, 900, 'wall').refreshBody();
+          this.wallGroup.create(1000, 1000, 'wall').setAngle(90).refreshBody();
+        }
+
+        // --- Cover creation function ---
+        createCover() {
+          // Changed to solid blocks, removed setAlpha
+          this.coverGroup.create(200, 200, 'cover').refreshBody();
+          this.coverGroup.create(600, 700, 'cover').refreshBody();
+          this.coverGroup.create(1000, 300, 'cover').refreshBody();
+          this.coverGroup.create(1400, 800, 'cover').refreshBody();
+        }
+
+        // --- Player/Cover Overlap Callback ---
+        handlePlayerOverlapCover(player, cover) {
+          player.setAlpha(0.4); // Make player semi-transparent
+        }
+
+        // --- Bullet/Wall Collision Callback ---
+        handleBulletHitWall(bullet, wall) {
+          bullet.destroy(); // Destroy the bullet
+        }
+
+        handleFireBullet() {
+          if (isGameOver || !localPlayer || !bulletsCollectionRef) return;
+
+          const now = Date.now();
+          if (now - lastShotTime < SHOT_COOLDOWN) {
+            return; // Cooldown
+          }
+          lastShotTime = now;
+
+          synth.triggerAttackRelease('C2', '8n');
+
+          localPlayer.muzzleFlash.setVisible(true);
+          this.time.delayedCall(50, () =>
+            localPlayer.muzzleFlash.setVisible(false)
+          );
+
+          const angle = localPlayer.rotation;
+          const bulletX = localPlayer.x + Math.cos(angle) * GUN_LENGTH;
+          const bulletY = localPlayer.y + Math.sin(angle) * GUN_LENGTH;
+
+          const bullet = this.bulletGroup.get(bulletX, bulletY, 'bullet');
+          if (!bullet) return;
+
+          bullet.setActive(true).setVisible(true);
+          bullet.setAngle(Phaser.Math.RadToDeg(angle));
+          bullet.ownerId = userId;
+          bullet.body.setCollideWorldBounds(true);
+          bullet.body.onWorldBounds = true;
+          bullet.body.setCircle(4, 0, 0); // Use 4px radius for the 8x8 sprite
+
+          this.physics.velocityFromRotation(
+            angle,
+            BULLET_SPEED,
+            bullet.body.velocity
+          );
+
+          bullet.lifespan = BULLET_LIFESPAN;
+          bullet.update = (time, delta) => {
+            bullet.lifespan -= delta;
+            if (bullet.lifespan <= 0) {
+              bullet.destroy();
+            }
+          };
+
+          addDoc(bulletsCollectionRef, {
+            ownerId: userId,
+            x: bulletX,
+            y: bulletY,
+            angle: angle,
+            speed: BULLET_SPEED,
+            createdAt: now,
+          }).catch((err) => console.error('Error adding bullet doc:', err));
+        }
+
+        fireRemoteBullet(bulletData) {
+          const bullet = this.bulletGroup.get(
+            bulletData.x,
+            bulletData.y,
+            'bullet'
+          );
+          if (!bullet) return;
+
+          bullet.setActive(true).setVisible(true);
+          bullet.setAngle(Phaser.Math.RadToDeg(bulletData.angle));
+          bullet.ownerId = bulletData.ownerId;
+          bullet.body.setCollideWorldBounds(true);
+          bullet.body.onWorldBounds = true;
+          bullet.body.setCircle(4, 0, 0); // Use 4px radius for the 8x8 sprite
+
+          this.physics.velocityFromRotation(
+            bulletData.angle,
+            bulletData.speed,
+            bullet.body.velocity
+          );
+
+          bullet.lifespan = BULLET_LIFESPAN;
+          bullet.update = (time, delta) => {
+            bullet.lifespan -= delta;
+            if (bullet.lifespan <= 0) {
+              bullet.destroy();
+            }
+          };
+        }
+
+        async handleBulletHitPlayer(player, bullet) {
+          if (player.firestoreData.id === bullet.ownerId) {
+            return; // Prevent self-harm
+          }
+
+          bullet.destroy();
+
+          // Damage is handled by the SHOOTER's client
+          if (bullet.ownerId === userId) {
+            const targetData = player.firestoreData;
+            if (!targetData) return;
+
+            let newHp = targetData.hp - SHOT_DAMAGE;
+            const targetDocRef = doc(playersCollectionRef, targetData.id);
+
+            if (newHp <= 0) {
+              // Player is dead, respawn them
+              const spawnPoint = getRandomSpawnPoint();
+              updateDoc(targetDocRef, {
+                hp: MAX_HP,
+                x: spawnPoint.x,
+                y: spawnPoint.y,
+              }).catch((err) => console.error('Error respawning player:', err));
+
+              // Increment shooter's score
+              const newKills = (localPlayer.firestoreData.kills || 0) + 1;
+              const shooterDocRef = doc(playersCollectionRef, userId);
+              updateDoc(shooterDocRef, { kills: newKills }).catch((err) =>
+                console.error('Error updating score:', err)
+              );
+            } else {
+              // Just update their HP
+              updateDoc(targetDocRef, { hp: newHp }).catch((err) =>
+                console.error('Error updating HP:', err)
+              );
+            }
+
+            // If we have on-chain mapping for victim, call contract.playerShot
+            try {
+              if (contract && userAddress && targetData.ethAddress) {
+                // Fire-and-forget: call the contract to register the shot
+                contract.playerShot(userAddress, targetData.ethAddress, 100).then((tx) => tx.wait()).then(() => {
+                  console.log('On-chain playerShot recorded');
+                  updateGameStatus();
+                }).catch((err) => console.error('On-chain playerShot failed:', err));
+              }
+            } catch (err) {
+              console.error('Error triggering on-chain shot:', err);
+            }
+          }
+        }
+
+
+        updateLocalPlayerMovement(delta) {
+          if (!localPlayer || !this.keys) return;
+
+          localPlayer.body.setVelocity(0);
+
+          let vx = 0;
+          let vy = 0;
+
+          if (this.keys.A.isDown) vx = -PLAYER_SPEED;
+          else if (this.keys.D.isDown) vx = PLAYER_SPEED;
+
+          if (this.keys.W.isDown) vy = -PLAYER_SPEED;
+          else if (this.keys.S.isDown) vy = PLAYER_SPEED;
+
+          localPlayer.body.setVelocity(vx, vy);
+          localPlayer.body.velocity.normalize().scale(PLAYER_SPEED);
+        }
+
+        updateOtherPlayers(delta) {
+          playerObjects.forEach((playerObj, id) => {
+            if (id === userId) return;
+
+            const firestoreData = playerObj.firestoreData;
+            if (!firestoreData) return;
+
+            const lerpFactor = 0.1;
+            playerObj.x = Phaser.Math.Linear(
+              playerObj.x,
+              firestoreData.x,
+              lerpFactor
+            );
+            playerObj.y = Phaser.Math.Linear(
+              playerObj.y,
+              firestoreData.y,
+              lerpFactor
+            );
+            playerObj.rotation = Phaser.Math.Angle.RotateTo(
+              playerObj.rotation,
+              firestoreData.angle,
+              lerpFactor
+            );
+          });
+        }
+      }
+
+      // --- Phaser Game Config ---
+      const config = {
+        type: Phaser.AUTO,
+        parent: 'game-container',
+        width: 800,
+        height: 600,
+        backgroundColor: '#1a202c',
+        physics: {
+          default: 'arcade',
+          arcade: {
+            // debug: true, // Set true to see physics boxes
+            gravity: { y: 0 },
+          },
+        },
+        scene: [GameScene],
+        scale: {
+          mode: Phaser.Scale.FIT,
+          autoCenter: Phaser.Scale.CENTER_BOTH,
+        },
+      };
+
+      // --- Helper Functions ---
+
+      function createPlayerVisuals(scene, playerData) {
+        const playerContainer = scene.add.container(
+          playerData.x,
+          playerData.y
+        );
+        playerContainer.setSize(PLAYER_SIZE, PLAYER_SIZE);
+
+        scene.playerGroup.add(playerContainer);
+        playerContainer.body.setCollideWorldBounds(true);
+        playerContainer.body.setImmovable(false);
+        playerContainer.body.setBounce(0.5);
+        playerContainer.body.setCircle(PLAYER_SIZE / 2);
+
+        const body = scene.add.sprite(0, 0, 'player_sprite');
+        body.setDisplaySize(PLAYER_SIZE, PLAYER_SIZE);
+        body.setTint(
+          Phaser.Display.Color.HexStringToColor(playerData.color).color
+        );
+        playerContainer.add(body);
+
+        const gun = scene.add.graphics();
+        gun.fillStyle(0x6b7280, 1);
+        gun.fillRect(0, -5, GUN_LENGTH, 10);
+        playerContainer.add(gun);
+
+        const outline = scene.add.graphics();
+        outline.lineStyle(3, 0xffffff, 1);
+        outline.strokeCircle(0, 0, PLAYER_SIZE / 2 + 3);
+        outline.setVisible(false);
+        playerContainer.add(outline);
+        playerContainer.playerOutline = outline;
+
+        // Health bar Y position changed
+        const hpY = -(PLAYER_SIZE / 2) - 18;
+        const healthBar = scene.add.graphics();
+        healthBar.fillStyle(0xff0000, 1);
+        healthBar.fillRect(-PLAYER_SIZE / 2, hpY, PLAYER_SIZE, 5);
+        const hpPercent = (playerData.hp || MAX_HP) / MAX_HP;
+        healthBar.fillStyle(0x00ff00, 1);
+        healthBar.fillRect(-PLAYER_SIZE / 2, hpY, PLAYER_SIZE * hpPercent, 5);
+        playerContainer.add(healthBar);
+        playerContainer.healthBar = healthBar;
+
+        // Name label Y position changed
+        const nameLabel = scene.add.text(
+          0,
+          -(PLAYER_SIZE / 2) - 8,
+          playerData.name, // Use the name from data
+          { font: '12px sans-serif', fill: '#ffffff', align: 'center' }
+        );
+        nameLabel.setOrigin(0.5);
+        playerContainer.add(nameLabel);
+        playerContainer.nameLabel = nameLabel; // Store reference
+
+        const muzzleFlash = scene.add.graphics();
+        muzzleFlash.fillStyle(0xffff00, 1);
+        muzzleFlash.fillCircle(GUN_LENGTH, 0, 8);
+        muzzleFlash.setVisible(false);
+        playerContainer.add(muzzleFlash);
+        playerContainer.muzzleFlash = muzzleFlash;
+
+        playerContainer.firestoreData = playerData;
+
+        return playerContainer;
+      }
+
+      function updateHealthBar(playerObj, hp) {
+        if (!playerObj || !playerObj.healthBar) return;
+
+        playerObj.healthBar.clear();
+        // Use updated Y
+        const hpY = -(PLAYER_SIZE / 2) - 18;
+        const hpPercent = Math.max(0, hp / MAX_HP);
+
+        playerObj.healthBar.fillStyle(0xff0000, 1);
+        playerObj.healthBar.fillRect(-PLAYER_SIZE / 2, hpY, PLAYER_SIZE, 5);
+        playerObj.healthBar.fillStyle(0x00ff00, 1);
+        playerObj.healthBar.fillRect(
+          -PLAYER_SIZE / 2,
+          hpY,
+          PLAYER_SIZE * hpPercent,
+          5
+        );
+      }
+
+      function updateScoreboardUI(playersMap) {
+        if (!scoreboardList) return;
+
+        const playersData = Array.from(playersMap.values())
+          .map((p) => p.firestoreData)
+          .filter((p) => p); // Filter out any undefined
+
+        playersData.sort((a, b) => (b.kills || 0) - (a.kills || 0));
+
+        if (playersData.length === 0) {
+          scoreboardList.innerHTML =
+            '<li class="text-gray-500">No players...</li>';
+          return;
+        }
+
+        scoreboardList.innerHTML = playersData
+          .map(
+            (p) => `
+                <li class="text-white px-1 flex justify-between">
+                  <span>${p.name}</span>
+                  <span class="font-bold text-teal-300">${p.kills || 0}</span>
+                </li>
+              `
+          )
+          .join('');
+      }
+
+      function triggerGameOver(winnerName) {
+        winnerText.textContent = `${winnerName} wins the game!`;
+        gameOverOverlay.classList.remove('hidden');
+        gameOverOverlay.classList.add('flex');
+
+        if (localPlayer) {
+          localPlayer.body.setVelocity(0);
+        }
+
+        // *** FIX: New "Play Again" logic ***
+        // This will delete all player documents from Firestore to reset the game
+        playAgainButton.onclick = async () => {
+          try {
+            // 1. Disable the button
+            playAgainButton.disabled = true;
+            playAgainButton.textContent = 'Resetting...';
+
+            // 2. Fetch all players
+            const snapshot = await getDocs(playersCollectionRef);
+            const deletePromises = [];
+
+            // 3. Create a delete promise for each player
+            snapshot.forEach((playerDoc) => {
+              deletePromises.push(deleteDoc(playerDoc.ref));
+            });
+
+            // 4. Wait for all deletes to finish
+            await Promise.all(deletePromises);
+
+            // 5. Reload the page
+            window.location.reload();
+          } catch (err) {
+            console.error('Error resetting game:', err);
+            // Still reload, just in case
+            window.location.reload();
+          }
+        };
+        // *** END FIX ***
+      }
+
+      function getRandomSpawnPoint() {
+        // TODO: This could be smarter and avoid spawning on walls
+        return {
+          x: 50 + Math.random() * (WORLD_WIDTH - 100),
+          y: 50 + Math.random() * (WORLD_HEIGHT - 100),
+        };
+      }
+
+      // --- Firebase Functions ---
+
+      function initializeFirebase() {
+        try {
+ const firebaseConfig = {
+  apiKey: "AIzaSyDUIz_TY69VMsEL5FZu2IhAXF-SauyWxpk",
+  authDomain: "shooting-a3b90.firebaseapp.com",
+  projectId: "shooting-a3b90",
+  storageBucket: "shooting-a3b90.firebasestorage.app",
+  messagingSenderId: "1013851991025",
+  appId: "1:1013851991025:web:977e29d60cebe5422eb250",
+  measurementId: "G-CGTY5R097Q"
+};
+          appId = firebaseConfig.projectId || 'default-app-id';
+          app = initializeApp(firebaseConfig);
+          auth = getAuth(app);
+          db = getFirestore(app);
+          setLogLevel('Debug');
+
+          playersCollectionRef = collection(
+            db,
+            `/artifacts/${appId}/public/data/projectile_players`
+          );
+          bulletsCollectionRef = collection(
+            db,
+            `/artifacts/${appId}/public/data/projectile_bullets`
+          );
+        } catch (error) {
+          console.error('Error initializing Firebase:', error);
+        }
+      }
+
+      function startAuthListener() {
+        if (!auth) return;
+
+        onAuthStateChanged(auth, async (user) => {
+          if (user) {
+            userId = user.uid;
+            userIdSpan.textContent = userId;
+
+            // Show name input instead of starting game
+            loadingText.style.display = 'none';
+            nameInputArea.classList.remove('hidden');
+            nameInputArea.classList.add('flex');
+            nameInput.placeholder = `Player_${userId.substring(0, 5)}`;
+          } else {
+            signIn();
+          }
+        });
+      }
+
+      async function signIn() {
+        if (!auth) return;
+        try {
+          await signInAnonymously(auth);
+        } catch (error) {
+          console.error('Error signing in:', error);
+          let errorTitle = 'Firebase Error';
+          let errorMsg = 'An unknown error occurred. Check the console.';
+
+          if (error.code === 'auth/api-key-not-valid') {
+            errorTitle = 'Firebase Error: API Key Not Valid';
+            errorMsg = `This means you MUST go to your Firebase project,
+                click <b>Build > Authentication > Get started</b>,
+                and <b>Enable "Anonymous"</b> sign-in.`;
+          } else if (error.code === 'auth/configuration-not-found') {
+            errorTitle = 'Firebase Error: Auth Config Missing';
+            errorMsg = `You MUST go to your Firebase project,
+                click <b>Build > Authentication</b>,
+                and click the <b>"Get started"</b> button to enable the service.`;
+          }
+
+          loadingOverlay.innerHTML = `
+            <div class="text-xl font-bold text-red-400 max-w-lg text-center p-4 bg-gray-800 rounded-lg">
+              <b>${errorTitle}</b>
+              <br/><span class="font-normal text-sm text-gray-300 mt-2 block">
+              ${errorMsg}
+              </span>
+            </div>`;
+        }
+      }
+
+      async function startFirebaseListeners(scene) {
+        if (!db || !playersCollectionRef || !userId) return;
+
+        // Get player name from input
+        const playerName =
+          nameInput.value.trim() || `Player_${userId.substring(0, 5)}`;
+
+        // 1. Create or Update Local Player in Firestore
+        const randomColor = `hsl(${Math.random() * 360}, 90%, 60%)`;
+        const startPos = getRandomSpawnPoint();
+        const localPlayerData = {
+          id: userId,
+          x: startPos.x,
+          y: startPos.y,
+          angle: 0,
+          color: randomColor,
+          hp: MAX_HP,
+          name: playerName, // Use the chosen name
+          lastShotTime: 0,
+          kills: 0,
+        };
+
+        const playerDocRef = doc(playersCollectionRef, userId);
+        try {
+          await setDoc(playerDocRef, localPlayerData, { merge: true });
+        } catch (error) {
+          console.error('Error creating local player:', error);
+          loadingOverlay.innerHTML = `
+            <div class="text-xl font-bold text-red-400 max-w-lg text-center p-4 bg-gray-800 rounded-lg">
+              <b>Firebase Error: Cannot Connect to Database</b>
+              <br/><span class="font-normal text-sm text-gray-300 mt-2 block">
+              This means you MUST go to your Firebase project,
+                click <b>Build > Firestore Database > Create database</b>,
+                and <b>Start in test mode</b>.
+              </span>
+            </div>`;
+          loadingOverlay.style.display = 'flex';
+          return;
+        }
+
+        // 2. Create Local Player Visuals in Phaser
+        localPlayer = createPlayerVisuals(scene, localPlayerData);
+        if (localPlayer.playerOutline) {
+          localPlayer.playerOutline.setVisible(true);
+        }
+        // Set local player name color
+        if (localPlayer.nameLabel) {
+          localPlayer.nameLabel.setColor('#6EE7B7'); // teal-300
+        }
+        playerObjects.set(userId, localPlayer);
+        scene.cameras.main.startFollow(localPlayer, true, 0.1, 0.1);
+        // Note: loadingOverlay is hidden by joinGameButton now
+
+        // 3. Listen for all players
+        playersUnsubscribe = onSnapshot(
+          playersCollectionRef,
+          (snapshot) => {
+            const playersOnServer = new Set();
+            let winnerFound = false;
+            let winnerName = '';
+
+            snapshot.forEach((doc) => {
+              const playerData = doc.data();
+              playersOnServer.add(playerData.id);
+
+              if (playerData.kills >= SCORE_TO_WIN) {
+                winnerFound = true;
+                winnerName = playerData.name;
+              }
+
+              if (playerData.id === userId) {
+                localPlayer.firestoreData = playerData;
+                updateHealthBar(localPlayer, playerData.hp);
+                return;
+              }
+
+              let playerObj = playerObjects.get(playerData.id);
+
+              if (!playerObj) {
+                console.log('New player joined:', playerData.id);
+                playerObj = createPlayerVisuals(scene, playerData);
+                playerObjects.set(playerData.id, playerObj);
+              }
+
+              // Sync HP changes
+              if (playerObj.firestoreData.hp !== playerData.hp) {
+                updateHealthBar(playerObj, playerData.hp);
+              }
+
+              // Sync Muzzle Flash
+              if (
+                playerObj.firestoreData.lastShotTime < playerData.lastShotTime
+              ) {
+                playerObj.muzzleFlash.setVisible(true);
+                scene.time.delayedCall(50, () =>
+                  playerObj.muzzleFlash.setVisible(false)
+                );
+              }
+
+              playerObj.firestoreData = playerData;
+            });
+
+            // 4. Check for disconnected players
+            playerObjects.forEach((playerObj, id) => {
+              if (id !== userId && !playersOnServer.has(id)) {
+                console.log('Player left:', id);
+                playerObj.destroy();
+                playerObjects.delete(id);
+              }
+            });
+
+            updateScoreboardUI(playerObjects);
+
+            if (winnerFound && !isGameOver) {
+              isGameOver = true;
+              triggerGameOver(winnerName);
+            }
+          },
+          (error) => console.error('Error listening for players:', error)
+        );
+
+        // 5. Listen for Bullets
+        const joinTime = Date.now();
+        bulletsUnsubscribe = onSnapshot(
+          bulletsCollectionRef,
+          (snapshot) => {
+            snapshot.docChanges().forEach((change) => {
+              if (change.type === 'added') {
+                const bulletData = change.data();
+                if (
+                  bulletData.createdAt > joinTime &&
+                  bulletData.ownerId !== userId
+                ) {
+                  scene.fireRemoteBullet(bulletData);
+                }
+              }
+            });
+          },
+          (error) => console.error('Error listening for bullets:', error)
+        );
+      }
+
+      // --- Start Everything ---
+      window.onload = () => {
+        initializeFirebase();
+        startAuthListener();
+
+          // Wire wallet connect and join buttons
+          const connectWalletBtn = document.getElementById('connectWalletBtn');
+          const joinGameBtn = document.getElementById('joinGameButton');
+          const stakeInput = document.getElementById('stakeAmount');
+
+          if (connectWalletBtn) {
+            connectWalletBtn.onclick = async () => {
+              loadingText.textContent = 'Connecting wallet...';
+              const ok = await connectWallet();
+              if (ok) {
+                loadingText.textContent = 'Wallet connected';
+                joinGameBtn.disabled = false;
+                connectWalletBtn.disabled = true;
+              } else {
+                loadingText.textContent = 'Wallet connection failed';
+              }
+            };
+          }
+
+          if (joinGameBtn) {
+            joinGameBtn.onclick = async () => {
+              // Ensure Firebase auth userId exists
+              if (!userId) {
+                alert('Still signing in to server. Please wait a moment.');
+                return;
+              }
+
+              // Ensure wallet connected
+              if (!walletConnected) {
+                loadingText.textContent = 'Please connect your wallet first';
+                return;
+              }
+
+              // Check if user already joined on-chain
+              try {
+                const pdata = await contract.players(userAddress);
+                if (pdata && pdata.joined) {
+                  // Already joined; proceed to start local game
+                  loadingText.textContent = 'Already joined — entering game...';
+                  if (!phaserGame) phaserGame = new Phaser.Game(config);
+                  loadingOverlay.style.display = 'none';
+                  return;
+                }
+              } catch (err) {
+                console.warn('Could not read player state:', err);
+              }
+
+              // Read stake and send joinGame transaction
+              const stakeVal = (stakeInput && stakeInput.value) || '0.01';
+              loadingText.textContent = 'Sending join transaction...';
+              try {
+                const stakeWei = ethers.parseEther(stakeVal);
+                const tx = await contract.joinGame({ value: stakeWei });
+                loadingText.textContent = 'Waiting for confirmation...';
+                await tx.wait();
+                loadingText.textContent = 'Joined on-chain — entering game...';
+                await updateGameStatus();
+                // Record eth address in Firestore for on-chain mapping
+                try {
+                  if (playersCollectionRef && userId && userAddress) {
+                    const myDoc = doc(playersCollectionRef, userId);
+                    await setDoc(myDoc, { ethAddress: userAddress }, { merge: true });
+                  }
+                } catch (err) {
+                  console.warn('Could not write ethAddress to Firestore:', err);
+                }
+                if (!phaserGame) phaserGame = new Phaser.Game(config);
+                loadingOverlay.style.display = 'none';
+              } catch (err) {
+                console.error('Join transaction failed:', err);
+                loadingText.textContent = 'Join failed: ' + (err?.message || err);
+                alert('Join failed: ' + (err?.message || err));
+              }
+            };
+          }
+      };
+
+      // Clean up on window unload
+      window.onunload = () => {
+        if (playersUnsubscribe) playersUnsubscribe();
+        if (bulletsUnsubscribe) bulletsUnsubscribe();
+
+        // REMOVED player delete on unload. This will be handled by the "Play Again" button.
+        
+        if (phaserGame) {
+          phaserGame.destroy(true);
+        }
+      };
+    </script>
+  </body>
+</html>
