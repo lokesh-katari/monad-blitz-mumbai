@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 type LogEntry = {
     id: number;
     type: "parallel" | "collision";
-    pixelId: number;
     timestamp: number;
 };
 
@@ -22,19 +21,11 @@ export default function EngineDashboard({ cleanCount, collisionCount }: EngineDa
     const prevClean = useRef(0);
     const prevCollision = useRef(0);
 
-    // Detect new events and trigger pulse + log
     useEffect(() => {
         if (cleanCount > prevClean.current) {
-            const diff = cleanCount - prevClean.current;
             setFastLanePulse(true);
-            for (let i = 0; i < diff; i++) {
-                const entry: LogEntry = {
-                    id: logIdRef.current++,
-                    type: "parallel",
-                    pixelId: 0,
-                    timestamp: Date.now(),
-                };
-                setLogs(prev => [entry, ...prev].slice(0, 50));
+            for (let i = 0; i < cleanCount - prevClean.current; i++) {
+                setLogs(prev => [{ id: logIdRef.current++, type: "parallel" as const, timestamp: Date.now() }, ...prev].slice(0, 30));
             }
         }
         prevClean.current = cleanCount;
@@ -42,34 +33,20 @@ export default function EngineDashboard({ cleanCount, collisionCount }: EngineDa
 
     useEffect(() => {
         if (collisionCount > prevCollision.current) {
-            const diff = collisionCount - prevCollision.current;
             setBottleneckPulse(true);
-            for (let i = 0; i < diff; i++) {
-                const entry: LogEntry = {
-                    id: logIdRef.current++,
-                    type: "collision",
-                    pixelId: 0,
-                    timestamp: Date.now(),
-                };
-                setLogs(prev => [entry, ...prev].slice(0, 50));
+            for (let i = 0; i < collisionCount - prevCollision.current; i++) {
+                setLogs(prev => [{ id: logIdRef.current++, type: "collision" as const, timestamp: Date.now() }, ...prev].slice(0, 30));
             }
         }
         prevCollision.current = collisionCount;
     }, [collisionCount]);
 
-    // Reset pulses
     useEffect(() => {
-        if (fastLanePulse) {
-            const t = setTimeout(() => setFastLanePulse(false), 600);
-            return () => clearTimeout(t);
-        }
+        if (fastLanePulse) { const t = setTimeout(() => setFastLanePulse(false), 600); return () => clearTimeout(t); }
     }, [fastLanePulse]);
 
     useEffect(() => {
-        if (bottleneckPulse) {
-            const t = setTimeout(() => setBottleneckPulse(false), 600);
-            return () => clearTimeout(t);
-        }
+        if (bottleneckPulse) { const t = setTimeout(() => setBottleneckPulse(false), 600); return () => clearTimeout(t); }
     }, [bottleneckPulse]);
 
     const totalTx = cleanCount + collisionCount;
@@ -94,66 +71,48 @@ export default function EngineDashboard({ cleanCount, collisionCount }: EngineDa
             </div>
 
             <div className="dashboard-lanes">
-                {/* Fast Lane */}
                 <div className={`lane lane-fast ${fastLanePulse ? "lane-pulse-fast" : ""}`}>
                     <div className="lane-header">
                         <div className="lane-indicator lane-indicator-fast" />
                         <h3 className="lane-title">Parallel Execution (Fast Lane)</h3>
                     </div>
-                    <p className="lane-description">Independent state access — executed in parallel</p>
+                    <p className="lane-description">Independent state — executed in parallel</p>
                     <div className="lane-counter">
                         <span className="counter-value counter-fast">{cleanCount}</span>
                         <span className="counter-label">Clean Transactions</span>
                     </div>
                     <div className="lane-bar">
-                        <div
-                            className="lane-bar-fill lane-bar-fast"
-                            style={{ width: totalTx > 0 ? `${(cleanCount / totalTx) * 100}%` : "0%" }}
-                        />
+                        <div className="lane-bar-fill lane-bar-fast" style={{ width: totalTx > 0 ? `${(cleanCount / totalTx) * 100}%` : "0%" }} />
                     </div>
                 </div>
 
-                {/* Bottleneck Lane */}
                 <div className={`lane lane-bottleneck ${bottleneckPulse ? "lane-pulse-bottleneck" : ""}`}>
                     <div className="lane-header">
                         <div className="lane-indicator lane-indicator-bottleneck" />
-                        <h3 className="lane-title">State Contention (Sequential Bottleneck)</h3>
+                        <h3 className="lane-title">State Contention (Sequential)</h3>
                     </div>
-                    <p className="lane-description">Same-block state collision — forced sequential re-execution</p>
+                    <p className="lane-description">Same-block collision — re-executed sequentially</p>
                     <div className="lane-counter">
                         <span className="counter-value counter-bottleneck">{collisionCount}</span>
                         <span className="counter-label">Collisions Detected</span>
                     </div>
                     <div className="lane-bar">
-                        <div
-                            className="lane-bar-fill lane-bar-bottleneck"
-                            style={{ width: totalTx > 0 ? `${(collisionCount / totalTx) * 100}%` : "0%" }}
-                        />
+                        <div className="lane-bar-fill lane-bar-bottleneck" style={{ width: totalTx > 0 ? `${(collisionCount / totalTx) * 100}%` : "0%" }} />
                     </div>
                 </div>
             </div>
 
-            {/* Live event log */}
             <div className="event-log">
                 <h3 className="log-title">Live Event Feed</h3>
                 <div className="log-entries">
-                    {logs.length === 0 && (
-                        <div className="log-empty">Click pixels to see events here...</div>
-                    )}
+                    {logs.length === 0 && <div className="log-empty">Click pixels to see events here...</div>}
                     {logs.map(entry => (
-                        <div
-                            key={entry.id}
-                            className={`log-entry ${entry.type === "collision" ? "log-entry-collision" : "log-entry-parallel"}`}
-                        >
+                        <div key={entry.id} className={`log-entry ${entry.type === "collision" ? "log-entry-collision" : "log-entry-parallel"}`}>
                             <span className="log-dot" />
                             <span className="log-text">
-                                {entry.type === "parallel"
-                                    ? `✅ Parallel execution confirmed`
-                                    : `🔴 STATE COLLISION detected`}
+                                {entry.type === "parallel" ? "✅ Parallel execution confirmed" : "🔴 STATE COLLISION detected"}
                             </span>
-                            <span className="log-time">
-                                {new Date(entry.timestamp).toLocaleTimeString()}
-                            </span>
+                            <span className="log-time">{new Date(entry.timestamp).toLocaleTimeString()}</span>
                         </div>
                     ))}
                 </div>

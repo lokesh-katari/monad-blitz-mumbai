@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 const deployedContracts = {
   10143: {
     Canvas: {
-      address: "0x3c2349772CEb7c1D2a9333A1Dabee13d2F236f63",
+      address: "0x25f068644ef83Daf0d46e9C6a9e0cD12516639c6",
       abi: [
         {
           anonymous: false,
@@ -17,6 +17,12 @@ const deployedContracts = {
               internalType: "uint256",
               name: "pixelId",
               type: "uint256",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "painter",
+              type: "address",
             },
             {
               indexed: false,
@@ -38,6 +44,12 @@ const deployedContracts = {
               type: "uint256",
             },
             {
+              indexed: true,
+              internalType: "address",
+              name: "painter",
+              type: "address",
+            },
+            {
               indexed: false,
               internalType: "uint256",
               name: "blockNumber",
@@ -46,6 +58,19 @@ const deployedContracts = {
           ],
           name: "StateCollision",
           type: "event",
+        },
+        {
+          inputs: [],
+          name: "GRID_SIZE",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
         },
         {
           inputs: [
@@ -96,7 +121,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 14430716,
+      deployedOnBlock: 14451336,
     },
   },
 } as const;

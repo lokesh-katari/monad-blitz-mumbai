@@ -3,40 +3,42 @@ pragma solidity ^0.8.30;
 
 /**
  * @title Canvas
- * @notice A collaborative 100x100 pixel canvas that demonstrates Monad's
+ * @notice A collaborative 50x50 pixel canvas that demonstrates Monad's
  *         Optimistic Parallel EVM by detecting same-block state collisions.
  */
 contract Canvas {
+    uint256 public constant GRID_SIZE = 50;
+
     struct Pixel {
         uint8 color;
         uint256 lastUpdateBlock;
     }
 
-    /// @notice 1D mapping representing the 100x100 grid. pixelId = x*100 + y
+    /// @notice 1D mapping representing the 50x50 grid. pixelId = x*50 + y
     mapping(uint256 => Pixel) public canvas;
 
     /// @notice Emitted when a pixel is drawn with no same-block contention.
-    event PixelUpdated(uint256 indexed pixelId, uint8 color);
+    event PixelUpdated(uint256 indexed pixelId, address indexed painter, uint8 color);
 
     /// @notice Emitted when two transactions touch the same pixel in one block.
-    event StateCollision(uint256 indexed pixelId, uint256 blockNumber);
+    event StateCollision(uint256 indexed pixelId, address indexed painter, uint256 blockNumber);
 
     /**
      * @notice Paint a pixel on the canvas.
-     * @param _x X coordinate (0-99)
-     * @param _y Y coordinate (0-99)
+     * @param _x X coordinate (0-49)
+     * @param _y Y coordinate (0-49)
      * @param _color Color index (0-255)
      */
     function drawPixel(uint256 _x, uint256 _y, uint8 _color) external {
-        require(_x < 100, "X out of bounds");
-        require(_y < 100, "Y out of bounds");
+        require(_x < GRID_SIZE, "X out of bounds");
+        require(_y < GRID_SIZE, "Y out of bounds");
 
-        uint256 pixelId = (_x * 100) + _y;
+        uint256 pixelId = (_x * GRID_SIZE) + _y;
 
         if (canvas[pixelId].lastUpdateBlock == block.number) {
-            emit StateCollision(pixelId, block.number);
+            emit StateCollision(pixelId, msg.sender, block.number);
         } else {
-            emit PixelUpdated(pixelId, _color);
+            emit PixelUpdated(pixelId, msg.sender, _color);
         }
 
         canvas[pixelId].color = _color;
