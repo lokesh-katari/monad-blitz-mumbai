@@ -1,83 +1,80 @@
-# 🏗 Scaffold-ETH 2
+# ⚡ State Clash: Visualizing Monad's Parallel EVM
 
-<h4 align="center">
-  <a href="https://docs.scaffoldeth.io">Documentation</a> |
-  <a href="https://scaffoldeth.io">Website</a>
-</h4>
+> **Built for the Monad Blitz Mumbai Hackathon**
 
-🧪 An open-source, up-to-date toolkit for building decentralized applications (dapps) on the Ethereum blockchain. It's designed to make it easier for developers to create and deploy smart contracts and build user interfaces that interact with those contracts.
+**State Clash** is a massive, real-time multiplayer 50x50 collaborative pixel canvas built to dynamically visualize the core innovation behind Monad: **Optimistic Parallel Execution.** 
 
-> [!NOTE]
-> 🤖 Scaffold-ETH 2 is AI-ready! It has everything agents need to build on Ethereum. Check `.agents/`, `.claude/`, `.opencode` or `.cursor/` for more info.
+Instead of building another DEX to show that Monad is "fast," State Clash uses thousands of concurrent micro-transactions to turn the Parallel EVM into an interactive, visually stunning multiplayer game.
 
-⚙️ Built using NextJS, RainbowKit, Hardhat, Wagmi, Viem, and Typescript.
+---
 
-- ✅ **Contract Hot Reload**: Your frontend auto-adapts to your smart contract as you edit it.
-- 🪝 **[Custom hooks](https://docs.scaffoldeth.io/hooks/)**: Collection of React hooks wrapper around [wagmi](https://wagmi.sh/) to simplify interactions with smart contracts with typescript autocompletion.
-- 🧱 [**Components**](https://docs.scaffoldeth.io/components/): Collection of common web3 components to quickly build your frontend.
-- 🔥 **Burner Wallet & Local Faucet**: Quickly test your application with a burner wallet and local faucet.
-- 🔐 **Integration with Wallet Providers**: Connect to different wallet providers and interact with the Ethereum network.
+## 💡 The Problem We Solved
+Most developers build DApps *on top* of blockchains, but they don't visualize *how* the blockchain works. When pitching a new L1 like Monad, technical concepts like "State Parallelism" and "Sequential Fallbacks" are hard to explain to end-users and non-technical judges. 
 
-![Debug Contracts tab](https://github.com/scaffold-eth/scaffold-eth-2/assets/55535804/b237af0c-5027-4849-a5c1-2e31495cccb1)
+## 🎯 Our Unique Solution
+We built an X-Ray into the Monad Sequencer. 
+When hundreds of users click the canvas simultaneously:
+1. **The Fast Lane:** If they touch different pixels, Monad processes the transactions perfectly in parallel. Our "Engine Dashboard" pulses green, visualizing high-throughput execution.
+2. **The Contention Bottleneck:** If two users try to paint the exact same pixel in the exact same 1-second block window, Monad detects the **State Collision** mid-execution, aborts the parallel threads, and falls back to sequential execution. Our UI instantly flags the conflict, flashes the pixel red globally, and visualizes the sequential re-execution in real-time.
 
-## Requirements
+---
 
-Before you begin, you need to install the following tools:
+## 🛠️ Technical Architecture
 
-- [Node (>= v20.18.3)](https://nodejs.org/en/download/)
-- Yarn ([v1](https://classic.yarnpkg.com/en/docs/install/) or [v2+](https://yarnpkg.com/getting-started/install))
-- [Git](https://git-scm.com/downloads)
+*   **Smart Contract Base:** Scaffold-ETH 2 wrapped in Hardhat.
+*   **The Chain:** Custom-deployed to the Monad Testnet (`10143`).
+*   **Frontend Magic:** Next.js with `viem` and `wagmi`.
+*   **Zero-Friction UX:** We implemented Scaffold-ETH's **Burner Wallet** system. Users click and paint instantly without signing a single MetaMask popup, allowing for thousands of micro-transactions to spam the chain organically.
+*   **Real-Time Subscriptions:** We utilize fast WebSocket endpoints (`eth_subscribe`) to stream `PixelUpdated` and `StateCollision` events directly from Monad's raw blocks into a unified global **Transaction Pipeline** on the client.
 
-## Quickstart
-
-To get started with Scaffold-ETH 2, follow the steps below:
-
-1. Install dependencies if it was skipped in CLI:
-
+### State Collision Detection (Canvas.sol)
+Our Smart Contract doesn't just store color; it mathematically tracks state contention in the same block window:
+```solidity
+// Mathematical proof of Parallel Execution contention
+if (px.updatesInCurrentBlock > 0) {
+    emit StateCollision(pixelId, msg.sender, block.number);
+} else {
+    emit PixelUpdated(pixelId, msg.sender, _color);
+}
+px.updatesInCurrentBlock += 1;
 ```
-cd my-dapp-example
+
+---
+
+## 🚀 How to Run Locally
+
+1. **Clone and Install:**
+```bash
+git clone https://github.com/your-repo/state-clash.git
+cd state-clash
 yarn install
 ```
 
-2. Run a local network in the first terminal:
-
-```
-yarn chain
-```
-
-This command starts a local Ethereum network using Hardhat. The network runs on your local machine and can be used for testing and development. You can customize the network configuration in `packages/hardhat/hardhat.config.ts`.
-
-3. On a second terminal, deploy the test contract:
-
-```
-yarn deploy
-```
-
-This command deploys a test smart contract to the local network. The contract is located in `packages/hardhat/contracts` and can be modified to suit your needs. The `yarn deploy` command uses the deploy script located in `packages/hardhat/deploy` to deploy the contract to the network. You can also customize the deploy script.
-
-4. On a third terminal, start your NextJS app:
-
-```
+2. **Start the Next.js Frontend Development Server:**
+```bash
 yarn start
 ```
+*Visit `http://localhost:3000` to interact with the deployed Monad Testnet canvas.*
 
-Visit your app on: `http://localhost:3000`. You can interact with your smart contract using the `Debug Contracts` page. You can tweak the app config in `packages/nextjs/scaffold.config.ts`.
+---
 
-Run smart contract test with `yarn hardhat:test`
+## 🌐 How to Deploy to Vercel (Production)
 
-- Edit your smart contracts in `packages/hardhat/contracts`
-- Edit your frontend homepage at `packages/nextjs/app/page.tsx`. For guidance on [routing](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) and configuring [pages/layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) checkout the Next.js documentation.
-- Edit your deployment scripts in `packages/hardhat/deploy`
+To deploy this Scaffold-ETH monorepo directly to Vercel, use the following configuration when importing your GitHub repository:
 
+| Setting | Value |
+| :--- | :--- |
+| **Framework Preset** | Next.js |
+| **Root Directory**   | `packages/nextjs` *(Crucial: Do not leave blank!)* |
+| **Build Command**    | `yarn build` |
+| **Install Command**  | `yarn install` |
+| **Output Directory** | `.next` |
 
-## Documentation
+No environment variables are required out-of-the-box (we utilize Scaffold-ETH's public Alchemy fallbacks and public Monad endpoints). 
 
-Visit our [docs](https://docs.scaffoldeth.io) to learn how to start building with Scaffold-ETH 2.
+---
 
-To know more about its features, check out our [website](https://scaffoldeth.io).
-
-## Contributing to Scaffold-ETH 2
-
-We welcome contributions to Scaffold-ETH 2!
-
-Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md) for more information and guidelines for contributing to Scaffold-ETH 2.
+## 🏆 Presentation / Pitch Flow (For the Jury)
+1. **The Hook:** "Take out your phones, scan this QR code, and start tapping pixels frantically."
+2. **The Fast Lane:** Show them the Engine Dashboard processing their taps perfectly in parallel. Give them a tangible feel of 10,000 TPS.
+3. **The Collision:** Tell everyone to click the exact center pixel. Show the screen flash red and explain: *"Right there, Monad just detected a State Collision and gracefully fell back to sequential execution. We didn't build a Dapp; we built an interactive window directly into Monad's Parallel EVM."*
