@@ -201,7 +201,7 @@ export default function PixelCanvas({
             // Create tx pipeline item
             const txId = txIdCounter.current++;
             // Save the ID so the WebSocket event can find and update it
-            pendingTxsRef.current.set(`${pixelId}-${address}`, txId);
+            pendingTxsRef.current.set(`${pixelId}-${address.toLowerCase()}`, txId);
 
             const txItem: TxItem = {
                 id: txId,

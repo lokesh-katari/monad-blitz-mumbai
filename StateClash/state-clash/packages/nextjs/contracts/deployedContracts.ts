@@ -7,7 +7,7 @@ import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
 const deployedContracts = {
   10143: {
     Canvas: {
-      address: "0x25f068644ef83Daf0d46e9C6a9e0cD12516639c6",
+      address: "0xF04B27c7174bfA11302D7265B71BDEaA98cc3De3",
       abi: [
         {
           anonymous: false,
@@ -92,6 +92,11 @@ const deployedContracts = {
               name: "lastUpdateBlock",
               type: "uint256",
             },
+            {
+              internalType: "uint256",
+              name: "updatesInCurrentBlock",
+              type: "uint256",
+            },
           ],
           stateMutability: "view",
           type: "function",
@@ -121,7 +126,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deployedOnBlock: 14451336,
+      deployedOnBlock: 14464726,
     },
   },
 } as const;

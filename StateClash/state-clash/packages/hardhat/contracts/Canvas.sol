@@ -12,6 +12,7 @@ contract Canvas {
     struct Pixel {
         uint8 color;
         uint256 lastUpdateBlock;
+        uint256 updatesInCurrentBlock;
     }
 
     /// @notice 1D mapping representing the 50x50 grid. pixelId = x*50 + y
@@ -34,14 +35,22 @@ contract Canvas {
         require(_y < GRID_SIZE, "Y out of bounds");
 
         uint256 pixelId = (_x * GRID_SIZE) + _y;
+        Pixel storage px = canvas[pixelId];
 
-        if (canvas[pixelId].lastUpdateBlock == block.number) {
+        // Reset the block counter if we are in a new block
+        if (px.lastUpdateBlock != block.number) {
+            px.lastUpdateBlock = block.number;
+            px.updatesInCurrentBlock = 0;
+        }
+
+        // If this exact pixel has already been updated in THIS block, it's a collision
+        if (px.updatesInCurrentBlock > 0) {
             emit StateCollision(pixelId, msg.sender, block.number);
         } else {
             emit PixelUpdated(pixelId, msg.sender, _color);
         }
 
-        canvas[pixelId].color = _color;
-        canvas[pixelId].lastUpdateBlock = block.number;
+        px.color = _color;
+        px.updatesInCurrentBlock += 1;
     }
 }
