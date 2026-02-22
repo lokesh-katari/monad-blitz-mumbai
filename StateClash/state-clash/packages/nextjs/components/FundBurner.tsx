@@ -42,9 +42,7 @@ export default function FundBurner() {
               {copied ? "✓ Copied!" : "📋 Copy Address"}
             </button>
           </div>
-          <p className="fund-hint">
-            Open MetaMask → Send → paste the address above → send 1 MON
-          </p>
+          <p className="fund-hint">Open MetaMask → Send → paste the address above → send 1 MON</p>
         </div>
       </div>
     </div>
