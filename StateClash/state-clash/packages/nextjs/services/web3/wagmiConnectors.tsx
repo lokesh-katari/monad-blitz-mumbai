@@ -13,7 +13,7 @@ import scaffoldConfig from "~~/scaffold.config";
 
 const { targetNetworks } = scaffoldConfig;
 
-const wallets = [
+const wallets: any[] = [
   metaMaskWallet,
   walletConnectWallet,
   ledgerWallet,
